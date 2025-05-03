@@ -3,7 +3,7 @@
 BACKUP_DIR="/home/spatial/backups"
 REMOTE_PATH="/home/spatial"
 REMOTE_USER="spatial"
-REMOTE_HOST=172.28.71.18
+REMOTE_HOST=192.168.100.8
 
 #DATES
 CURRENT_DATE=$(date +'%m_%Y')
@@ -31,15 +31,35 @@ if [ -f "$LATEST_FILE" ]; then
    mv "$LATEST_FILE" "$NEW_OLD_FILE"
 fi
 
-# SCP FROM REMOTE SERVER AND RENAME TO LATEST
+# Validate the remote file exists and get size
 REMOTE_FILE="${REMOTE_PATH}/${FILE_NAME}.txt"
-TARGET_LATEST_FILE="${BACKUP_DIR}/${CURRENT_FILE_BASENAME}_latest.txt"
+REMOTE_SIZE=$(ssh "$REMOTE_USER@$REMOTE_HOST" stat -c %s "$REMOTE_FILE" 2>/dev/null)
 
+if [ -z "$REMOTE_SIZE" ]; then
+    echo "❌ Failed to get remote file size. File might not exist: $REMOTE_FILE"
+    exit 1
+fi
+
+echo "Remote file size: $REMOTE_SIZE bytes"
+
+# SCP FROM REMOTE SERVER AND RENAME TO LATEST
+TARGET_LATEST_FILE="${BACKUP_DIR}/${CURRENT_FILE_BASENAME}_latest.txt"
 echo "Pulling file from Server"
 scp "$REMOTE_USER@$REMOTE_HOST:$REMOTE_FILE" "$TARGET_LATEST_FILE"
 
-if [ $? -eq 0 ]; then
-  echo "✅ Backup completed successfully and saved as: $TARGET_LATEST_FILE"
+if [ $? -ne 0 ]; then
+   echo "❌ SCP failed!"
+   exit 1
+fi
+
+LOCAL_SIZE=$(stat -c %s "$TARGET_LATEST_FILE")
+echo "Local file size: $LOCAL_SIZE bytes"
+
+# Validate file size match
+if [ "$REMOTE_SIZE" -eq "$LOCAL_SIZE" ]; then
+  echo "✅ Backup completed successfully. File sizes match."
 else
-  echo "❌ Backup failed!"
+  echo "❌ Backup failed! File size mismatch."
+  echo "Remote: $REMOTE_SIZE bytes, Local: $LOCAL_SIZE bytes"
+  exit 1
 fi
